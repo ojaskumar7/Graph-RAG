@@ -1,0 +1,5 @@
+{"id": "hotpot_1", "question": "Who built the Eiffel Tower?", "expected_answer": "Gustave Eiffel's company built the Eiffel Tower", "supporting_facts": ["eiffel_tower_txt"]}
+{"id": "hotpot_2", "question": "Where is the Eiffel Tower located?", "expected_answer": "Paris, France", "supporting_facts": ["eiffel_tower_txt"]}
+{"id": "hotpot_3", "question": "Who designed the Statue of Liberty?", "expected_answer": "Frédéric Auguste Bartholdi", "supporting_facts": ["statue_of_liberty_txt"]}
+{"id": "hotpot_4", "question": "Who built the metal framework of the Statue of Liberty?", "expected_answer": "Gustave Eiffel", "supporting_facts": ["statue_of_liberty_txt"]}
+{"id": "hotpot_5", "question": "What was the 1889 World's Fair centerpiece?", "expected_answer": "The Eiffel Tower", "supporting_facts": ["eiffel_tower_txt"]}
