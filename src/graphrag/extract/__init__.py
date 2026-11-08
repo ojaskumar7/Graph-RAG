@@ -6,6 +6,7 @@ from .pipeline import (
     ExtractedEntity,
     ExtractedRelation,
     ExtractionError,
+    ValidationError,
 )
 from .normalize import EntityNormalizer, EntityRecord
 
@@ -15,6 +16,7 @@ __all__ = [
     "ExtractedEntity",
     "ExtractedRelation",
     "ExtractionError",
+    "ValidationError",
     "EntityNormalizer",
     "EntityRecord",
 ]
