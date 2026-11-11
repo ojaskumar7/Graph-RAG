@@ -429,6 +429,34 @@ PYTHONPATH=src python3 -m graphrag.cli eval --top-k 3 --mock-llm --full-pipeline
 
 ---
 
+## 📈 Actual Results (Groq: qwen/qwen3.8-27b)
+
+| Metric | Mock LLM | Real LLM (Groq) |
+|--------|----------|-----------------|
+| **Hit Rate** | 100% (5/5) | 100% (5/5) |
+| **Avg Recall@k** | 100% | 100% |
+| **Citation Valid Rate** | 100% (5/5) | 100% (5/5) |
+| **Graph Nodes** | N/A | 2 Document + 3 Chunk + 13 Entity = 18 |
+| **Graph Edges** | N/A | 3 HAS_CHUNK + 17 MENTIONS + 18 RELATED_TO = 38 |
+
+### Sample Answers (Real LLM)
+
+| Question | Answer | Citations |
+|----------|--------|-----------|
+| Who built the Eiffel Tower? | Gustave Eiffel's company, Compagnie des Établissements Eiffel, designed and built the Eiffel Tower | `eeb24a88f8ee5d4d` |
+| Where is the Eiffel Tower located? | The Eiffel Tower is located on the Champ de Mars in Paris, France | `eeb24a88f8ee5d4d` |
+| Who designed the Statue of Liberty? | The Statue of Liberty was designed by French sculptor Frédéric Auguste Bartholdi | `dd72ce7db6bd2c56` |
+| Who built the metal framework of the Statue of Liberty? | Gustave Eiffel | `dd72ce7db6bd2c56` |
+| What was the 1889 World's Fair centerpiece? | The Eiffel Tower | `232d11df9ce35863` |
+
+*All answers grounded with verifiable chunk citations. Confidence: 0.8 (cited).*
+
+---
+
+## 📁 Project Structure
+
+---
+
 ## 📁 Project Structure
 
 ```
