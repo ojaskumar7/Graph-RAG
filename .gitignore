@@ -12,6 +12,8 @@ venv/
 # Local data (keep subset/prep scripts as needed)
 data/raw/*
 data/processed/*
+data/embeddings/
+data/hotpotqa/
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/eval/.gitkeep

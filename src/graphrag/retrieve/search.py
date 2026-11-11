@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+
 from graphrag.graph import GraphStore, NodeType
+from graphrag.embeddings import LocalEmbedder, VectorIndex
 
 
 @dataclass(slots=True)
@@ -26,10 +30,73 @@ class RetrievedEntity:
 
 
 FTS_DB_NAME = "fts_index.sqlite"
+VECTOR_INDEX_NAME = "vector_index.pkl"
 
 
 def _get_fts_db_path(processed_dir: Path) -> Path:
     return processed_dir / FTS_DB_NAME
+
+
+def _get_vector_index_path(processed_dir: Path) -> Path:
+    return processed_dir / VECTOR_INDEX_NAME
+
+
+def build_vector_index(
+    store: GraphStore, processed_dir: Path, embedder: LocalEmbedder | None = None
+) -> VectorIndex:
+    """Build vector index from chunk nodes using local embeddings."""
+    if embedder is None:
+        embedder = LocalEmbedder()
+
+    index = VectorIndex(embedder)
+
+    chunks_data = []
+    for node in store.iter_nodes(NodeType.CHUNK):
+        chunk_id = node.id
+        text = node.properties.get("text", "")
+        chunks_data.append((chunk_id, text))
+
+    if chunks_data:
+        ids, texts = zip(*chunks_data)
+        index.add(list(ids), list(texts))
+
+    # Save to disk
+    index.save(_get_vector_index_path(processed_dir))
+    return index
+
+
+def load_vector_index(
+    processed_dir: Path, embedder: LocalEmbedder | None = None
+) -> VectorIndex | None:
+    """Load vector index from disk."""
+    path = _get_vector_index_path(processed_dir)
+    if not path.exists():
+        return None
+
+    if embedder is None:
+        embedder = LocalEmbedder()
+
+    index = VectorIndex(embedder)
+    index.load(path)
+    return index
+
+
+def vector_search_chunks(
+    processed_dir: Path,
+    query: str,
+    top_k: int = 5,
+    embedder: LocalEmbedder | None = None,
+) -> list[RetrievedChunk]:
+    """Search chunks using semantic vector similarity."""
+    index = load_vector_index(processed_dir, embedder)
+    if index is None:
+        return []
+
+    results = index.search(query, top_k=top_k)
+    return [
+        RetrievedChunk(chunk_id=id_, score=score, doc_id="", text=text)
+        for id_, score, text in results
+    ]
 
 
 def build_fts_index(store: GraphStore, processed_dir: Path) -> None:
@@ -209,29 +276,39 @@ def retrieve_context(
     top_k_chunks: int = 5,
     graph_hops: int = 1,
 ) -> dict:
-    """Full hybrid retrieval: FTS5 chunks + entity graph expansion."""
+    """Full hybrid retrieval: FTS5 chunks + vector search + entity graph expansion."""
     # 1. FTS5 search (with fallback to keyword)
     keyword_chunks = fts_search_chunks(store, processed_dir, query, top_k_chunks)
 
-    # 2. Find entities in query
+    # 2. Vector semantic search
+    vector_chunks = vector_search_chunks(processed_dir, query, top_k_chunks)
+
+    # 3. Find entities in query
     query_entities = find_entities_by_name(store, query)
     entity_ids = [e.entity_id for e in query_entities]
 
-    # 3. Graph expansion
+    # 4. Graph expansion
     expanded_entities, graph_chunks = expand_entities_neighbors(
         store, entity_ids, graph_hops
     )
 
-    # 4. Combine chunk sources
+    # 5. Combine chunk sources
     all_chunk_ids = {c.chunk_id for c in keyword_chunks}
+    all_chunk_ids.update({c.chunk_id for c in vector_chunks})
     all_chunk_ids.update(graph_chunks)
 
-    # Get full chunk objects
+    # Get full chunk objects with best scores
+    chunk_scores = {}
+    for c in keyword_chunks:
+        chunk_scores[c.chunk_id] = max(chunk_scores.get(c.chunk_id, 0), c.score)
+    for c in vector_chunks:
+        chunk_scores[c.chunk_id] = max(chunk_scores.get(c.chunk_id, 0), c.score)
+
     all_chunks = []
     for cid in all_chunk_ids:
         node = store.get_node(cid)
         if node and node.type == NodeType.CHUNK:
-            score = next((c.score for c in keyword_chunks if c.chunk_id == cid), 0.1)
+            score = chunk_scores.get(cid, 0.1)
             all_chunks.append(
                 RetrievedChunk(
                     chunk_id=cid,
@@ -245,6 +322,7 @@ def retrieve_context(
 
     return {
         "keyword_chunks": keyword_chunks,
+        "vector_chunks": vector_chunks,
         "query_entities": query_entities,
         "expanded_entities": expanded_entities,
         "all_chunks": all_chunks[: top_k_chunks * 2],

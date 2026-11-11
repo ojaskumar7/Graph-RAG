@@ -1,0 +1,12 @@
+{"question_id": "q1", "question": "Who built the Eiffel Tower?", "supporting_facts": ["eiffel_tower"], "expected_answer": "Gustave Eiffel's company, Compagnie des \u00c9tablissements Eiffel"}
+{"question_id": "q2", "question": "Where is the Eiffel Tower located?", "supporting_facts": ["eiffel_tower"], "expected_answer": "Champ de Mars, Paris, France"}
+{"question_id": "q3", "question": "When was the Eiffel Tower constructed?", "supporting_facts": ["eiffel_tower"], "expected_answer": "1887 to 1889"}
+{"question_id": "q4", "question": "Who designed the Statue of Liberty?", "supporting_facts": ["statue_of_liberty"], "expected_answer": "Fr\u00e9d\u00e9ric Auguste Bartholdi"}
+{"question_id": "q5", "question": "Who built the Statue of Liberty framework?", "supporting_facts": ["statue_of_liberty"], "expected_answer": "Gustave Eiffel"}
+{"question_id": "q6", "question": "Where is the Statue of Liberty?", "supporting_facts": ["statue_of_liberty"], "expected_answer": "Liberty Island, New York Harbor"}
+{"question_id": "q7", "question": "What was the 1889 World Fair centerpiece?", "supporting_facts": ["eiffel_tower"], "expected_answer": "The Eiffel Tower"}
+{"question_id": "q8", "question": "What company did Gustave Eiffel own?", "supporting_facts": ["eiffel_tower"], "expected_answer": "Compagnie des \u00c9tablissements Eiffel"}
+{"question_id": "q9", "question": "What is the Eiffel Tower made of?", "supporting_facts": ["eiffel_tower"], "expected_answer": "wrought-iron lattice"}
+{"question_id": "q10", "question": "What country gifted the Statue of Liberty?", "supporting_facts": ["statue_of_liberty"], "expected_answer": "France"}
+{"question_id": "q11", "question": "What river is Paris on?", "supporting_facts": ["eiffel_tower"], "expected_answer": "Seine River"}
+{"question_id": "q12", "question": "What is New York City known for?", "supporting_facts": ["statue_of_liberty"], "expected_answer": "five boroughs: Manhattan, Brooklyn, Queens, The Bronx, and Staten Island"}

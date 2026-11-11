@@ -120,6 +120,12 @@ def cmd_build_fts(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_build_vector(args: argparse.Namespace) -> int:
+    result = build_vector(args.env_file)
+    print(result)
+    return 0
+
+
 def cmd_inspect(args: argparse.Namespace) -> int:
     s = get_settings(Path(args.env_file) if args.env_file else None)
     store = GraphStore(s.processed_dir)
@@ -331,6 +337,28 @@ def build_fts(env_file: str | None = None) -> str:
     return "FTS5 index built successfully."
 
 
+def build_vector(env_file: str | None = None) -> str:
+    """Build vector index for semantic search."""
+    s = _get_settings(env_file)
+
+    store = GraphStore(s.processed_dir)
+    if not store.nodes:
+        return "Graph is empty. Run 'build-graph' first."
+
+    print("Building vector index...")
+    try:
+        from graphrag.embeddings import LocalEmbedder
+        from graphrag.retrieve.search import build_vector_index
+
+        embedder = LocalEmbedder()
+        build_vector_index(store, s.processed_dir, embedder)
+        return "Vector index built successfully."
+    except RuntimeError as e:
+        return f"Vector index failed: {e}. Install with: pip install fastembed"
+    except Exception as e:
+        return f"Vector index failed: {e}"
+
+
 def query(
     question: str,
     top_k: int = 5,
@@ -437,6 +465,12 @@ def build_parser() -> argparse.ArgumentParser:
         "build-fts", help="Build SQLite FTS5 index for full-text search"
     )
     build_fts.set_defaults(func=cmd_build_fts)
+
+    build_vector = sub.add_parser(
+        "build-vector",
+        help="Build vector index for semantic search (requires fastembed)",
+    )
+    build_vector.set_defaults(func=cmd_build_vector)
 
     query = sub.add_parser(
         "query", help="Retrieve evidence + graph context and answer with citations"
