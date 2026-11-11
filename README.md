@@ -322,9 +322,18 @@ cd /home/barely_ok/GraphRAG
 # 1. Configure LLM API (optional — works without for retrieval/eval)
 cp .env.example .env
 # Edit .env with your OpenAI-compatible endpoint:
+# --- Groq (fast, free tier) ---
+# GRAPHRAG_LLM_BASE_URL=https://api.groq.com/openai/v1
+# GRAPHRAG_LLM_API_KEY=gsk_xxxxxxxxxxxx
+# GRAPHRAG_LLM_MODEL=llama-3.1-70b-versatile
+# --- OpenAI ---
 # GRAPHRAG_LLM_BASE_URL=https://api.openai.com/v1
 # GRAPHRAG_LLM_API_KEY=sk-...
 # GRAPHRAG_LLM_MODEL=gpt-4o-mini
+# --- Ollama (local) ---
+# GRAPHRAG_LLM_BASE_URL=http://localhost:11434/v1
+# GRAPHRAG_LLM_API_KEY=ollama
+# GRAPHRAG_LLM_MODEL=llama3.1
 
 # 2. Ingest documents
 PYTHONPATH=src python3 -m graphrag.cli ingest
@@ -383,9 +392,9 @@ dot -Tpng subgraph.dot -o subgraph.png
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GRAPHRAG_LLM_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible API base URL |
-| `GRAPHRAG_LLM_API_KEY` | *(required for LLM)* | API key |
-| `GRAPHRAG_LLM_MODEL` | `gpt-4o-mini` | Model name |
+| `GRAPHRAG_LLM_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible API base URL (Groq: `https://api.groq.com/openai/v1`, Ollama: `http://localhost:11434/v1`) |
+| `GRAPHRAG_LLM_API_KEY` | *(required for LLM)* | API key (Groq: `gsk_...`, Ollama: `ollama`) |
+| `GRAPHRAG_LLM_MODEL` | `gpt-4o-mini` | Model name (Groq: `llama-3.1-70b-versatile`, `llama-3.1-8b-instant`, `mixtral-8x7b-32768`, `gemma2-9b-it`) |
 | `GRAPHRAG_DATA_DIR` | `./data` | Data root directory |
 | `GRAPHRAG_REQUEST_TIMEOUT` | `60` | HTTP timeout (seconds) |
 | `GRAPHRAG_MAX_RETRIES` | `2` | LLM retry attempts |
@@ -484,7 +493,7 @@ graphrag-lite/
 | Decision | Rationale |
 |----------|-----------|
 | **Stdlib-only** | Zero external deps → minimal venv size, no PyTorch/CUDA conflicts, works on any Python 3.12+ |
-| **OpenAI-compatible API** | Works with OpenAI, OpenRouter, local gateways (vLLM, Ollama + OpenAI shim), self-hosted |
+| **OpenAI-compatible API** | Works with OpenAI, Groq, OpenRouter, local gateways (vLLM, Ollama + OpenAI shim), self-hosted |
 | **JSONL graph storage** | Human-readable, diffable, no DB server needed |
 | **SQLite FTS5** | Built-in full-text search (BM25), zero extra deps |
 | **Provenance on every edge** | Every `RELATED_TO` edge stores `source_chunk_id` → verifiable citations |

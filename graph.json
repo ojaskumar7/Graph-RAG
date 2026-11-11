@@ -1,0 +1,71 @@
+{
+  "nodes": [
+    {
+      "id": "eiffel_tower_txt",
+      "type": "Document",
+      "properties": {
+        "path": "eiffel_tower.txt"
+      }
+    },
+    {
+      "id": "eeb24a88f8ee5d4d",
+      "type": "Chunk",
+      "properties": {
+        "doc_id": "eiffel_tower_txt",
+        "text": "# Sample HotpotQA-style document\n\nThe Eiffel Tower is a wrought-iron lattice tower on the Champ de Mars in Paris, France. It is named after the engineer Gustave Eiffel, whose company designed and built the tower. Constructed from 1887 to 1889 as the entrance to the 1889 World's Fair, it was initially criticized by some of France's leading artists and intellectuals for its design, but it has become a global cultural icon of France and one of the most recognizable structures in the world.\n\nGustave Eiffel was a French civil engineer and architect. He is best known for the Eiffel Tower, but he also worked on the internal structure of the Statue of Liberty in New York Harbor. Eiffel's company, Compagnie des \u00c9tablissements Eiffel, specialized in metal structural work.\n\nThe 1889 World's Fair, als",
+        "start": 0,
+        "end": 800
+      }
+    },
+    {
+      "id": "232d11df9ce35863",
+      "type": "Chunk",
+      "properties": {
+        "doc_id": "eiffel_tower_txt",
+        "text": "mpagnie des \u00c9tablissements Eiffel, specialized in metal structural work.\n\nThe 1889 World's Fair, also known as the Exposition Universelle of 1889, was a world's fair held in Paris, France, from 6 May to 31 October 1889. It was organized to celebrate the 100th anniversary of the French Revolution. The Eiffel Tower was the centerpiece of the fair.\n\nParis is the capital and most populous city of France. It is located on the Seine River in the northern part of the country. The city is known for its museums, monuments, and historical buildings.\n\nFrance is a country in Western Europe. It is known for its rich history, culture, cuisine, and landmarks like the Eiffel Tower and the Louvre Museum.",
+        "start": 700,
+        "end": 1396
+      }
+    },
+    {
+      "id": "statue_of_liberty_txt",
+      "type": "Document",
+      "properties": {
+        "path": "statue_of_liberty.txt"
+      }
+    },
+    {
+      "id": "dd72ce7db6bd2c56",
+      "type": "Chunk",
+      "properties": {
+        "doc_id": "statue_of_liberty_txt",
+        "text": "# Another sample document\n\nThe Statue of Liberty is a colossal neoclassical sculpture on Liberty Island in New York Harbor. It was a gift from France to the United States in 1886. The statue was designed by French sculptor Fr\u00e9d\u00e9ric Auguste Bartholdi, and its metal framework was built by Gustave Eiffel.\n\nNew York City is the most populous city in the United States. It is located at the mouth of the Hudson River. The city consists of five boroughs: Manhattan, Brooklyn, Queens, The Bronx, and Staten Island.\n\nThe United States is a country in North America. It declared independence from Great Britain in 1776.",
+        "start": 0,
+        "end": 612
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_eiffel_tower_txt_eeb24a88f8ee5d4d",
+      "type": "HAS_CHUNK",
+      "source": "eiffel_tower_txt",
+      "target": "eeb24a88f8ee5d4d",
+      "properties": {}
+    },
+    {
+      "id": "edge_eiffel_tower_txt_232d11df9ce35863",
+      "type": "HAS_CHUNK",
+      "source": "eiffel_tower_txt",
+      "target": "232d11df9ce35863",
+      "properties": {}
+    },
+    {
+      "id": "edge_statue_of_liberty_txt_dd72ce7db6bd2c56",
+      "type": "HAS_CHUNK",
+      "source": "statue_of_liberty_txt",
+      "target": "dd72ce7db6bd2c56",
+      "properties": {}
+    }
+  ]
+}

@@ -35,6 +35,7 @@ class OpenAICompatibleClient:
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
+            "User-Agent": "python-urllib/3.12",
         }
         last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):

@@ -1,0 +1,13 @@
+digraph graphrag {
+  rankdir=LR;
+  node [fontname="Helvetica", fontsize=10];
+  edge [fontname="Helvetica", fontsize=8];
+  "eiffel_tower_txt" [label="Doc:eiffel_tower.txt", type="Document"];
+  "eeb24a88f8ee5d4d" [label="Chunk:eeb24a88", type="Chunk"];
+  "232d11df9ce35863" [label="Chunk:232d11df", type="Chunk"];
+  "statue_of_liberty_txt" [label="Doc:statue_of_liberty.txt", type="Document"];
+  "dd72ce7db6bd2c56" [label="Chunk:dd72ce7d", type="Chunk"];
+  "eiffel_tower_txt" -> "eeb24a88f8ee5d4d" [label="HAS_CHUNK"];
+  "eiffel_tower_txt" -> "232d11df9ce35863" [label="HAS_CHUNK"];
+  "statue_of_liberty_txt" -> "dd72ce7db6bd2c56" [label="HAS_CHUNK"];
+}

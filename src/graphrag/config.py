@@ -48,6 +48,8 @@ def get_settings(env_path: Path | None = None) -> Settings:
         ).rstrip("/"),
         llm_api_key=os.environ.get("GRAPHRAG_LLM_API_KEY", ""),
         llm_model=os.environ.get("GRAPHRAG_LLM_MODEL", "gpt-4o-mini"),
+        # Groq: base_url="https://api.groq.com/openai/v1", model="llama-3.1-70b-versatile"
+        # Ollama: base_url="http://localhost:11434/v1", model="llama3.1"
         data_dir=Path(os.environ.get("GRAPHRAG_DATA_DIR", "./data")),
         request_timeout=float(os.environ.get("GRAPHRAG_REQUEST_TIMEOUT", "60")),
         max_retries=int(os.environ.get("GRAPHRAG_MAX_RETRIES", "2")),

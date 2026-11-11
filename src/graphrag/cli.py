@@ -5,6 +5,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from graphrag.config import get_settings, Settings
 from graphrag.ingest import (
@@ -32,7 +33,7 @@ from graphrag.graph import (
 from graphrag.llm.client import OpenAICompatibleClient, LLMError
 from graphrag.retrieve import (
     retrieve_context,
-    build_fts_index,
+    build_fts_index as build_fts_index_fn,
     fts_search_chunks,
     keyword_search_chunks,
 )
@@ -41,8 +42,18 @@ from graphrag.eval import run_eval
 from graphrag.extract import ExtractionPipeline, EntityNormalizer
 
 
+def _get_settings(env_file: str | None = None) -> Settings:
+    return get_settings(Path(env_file) if env_file else None)
+
+
+def _load_chunk_text(s: Settings, rec: ChunkRecord) -> str:
+    path = s.raw_dir / rec.path
+    text = path.read_text(encoding="utf-8")
+    return text[rec.start : rec.end]
+
+
 def cmd_info(args: argparse.Namespace) -> int:
-    s = get_settings(Path(args.env_file) if args.env_file else None)
+    s = _get_settings(args.env_file)
     print(
         json.dumps(
             {
@@ -61,29 +72,8 @@ def cmd_info(args: argparse.Namespace) -> int:
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
-    s = get_settings(Path(args.env_file) if args.env_file else None)
-    docs = load_documents(s.raw_dir)
-    if not docs:
-        print("No .md/.txt files found in data/raw", file=sys.stderr)
-        return 1
-
-    all_records: list[ChunkRecord] = []
-    for doc in docs:
-        chunks = chunk_document(doc.doc_id, doc.text)
-        for c in chunks:
-            all_records.append(
-                ChunkRecord(
-                    chunk_id=c.chunk_id,
-                    doc_id=c.doc_id,
-                    path=str(doc.path.relative_to(s.raw_dir)),
-                    start=c.start,
-                    end=c.end,
-                    text_hash=hashlib.sha256(c.text.encode()).hexdigest(),
-                )
-            )
-
-    write_manifest(s.processed_dir, all_records)
-    print(f"Ingested {len(docs)} docs -> {len(all_records)} chunks (manifest written)")
+    result = ingest(args.env_file)
+    print(result)
     return 0
 
 
@@ -94,183 +84,39 @@ def load_chunk_text(s: Settings, rec: ChunkRecord) -> str:
 
 
 def cmd_build_graph(args: argparse.Namespace) -> int:
-    s = get_settings(Path(args.env_file) if args.env_file else None)
-
-    manifest = load_manifest(s.processed_dir)
-    if not manifest:
-        print("No manifest found. Run 'ingest' first.", file=sys.stderr)
-        return 1
-
-    store = GraphStore(s.processed_dir)
-
-    for chunk_id, rec in manifest.items():
-        if rec.doc_id not in store.nodes:
-            store.upsert_node(make_document_node(rec.doc_id, rec.path))
-        if chunk_id not in store.nodes:
-            chunk_text = load_chunk_text(s, rec)
-            store.upsert_node(
-                make_chunk_node(chunk_id, rec.doc_id, chunk_text, rec.start, rec.end)
-            )
-        if f"edge_{rec.doc_id}_{chunk_id}" not in store.edges:
-            store.upsert_edge(
-                make_has_chunk_edge(
-                    f"edge_{rec.doc_id}_{chunk_id}", rec.doc_id, chunk_id
-                )
-            )
-
-    if not s.llm_api_key:
-        print(
-            "LLM API key not set (GRAPHRAG_LLM_API_KEY). Extraction skipped.",
-            file=sys.stderr,
-        )
-        print("Graph structure (documents/chunks) saved.")
-        store.save()
-        return 0
-
-    client = OpenAICompatibleClient(
-        base_url=s.llm_base_url,
-        api_key=s.llm_api_key,
-        model=s.llm_model,
-        timeout=s.request_timeout,
-        max_retries=s.max_retries,
-    )
-
-    pipeline = ExtractionPipeline(client, max_retries=s.max_retries)
-    normalizer = EntityNormalizer(store)
-
-    for chunk_id, rec in manifest.items():
-        chunk_text = load_chunk_text(s, rec)
-        try:
-            result = pipeline.extract(chunk_text)
-        except Exception as e:
-            print(f"Extraction failed for chunk {chunk_id}: {e}", file=sys.stderr)
-            continue
-
-        for ent in result.entities:
-            record = normalizer.normalize(ent.name, ent.entity_type, ent.canonical_name)
-            entity_id = record.entity_id
-
-            edge_id = f"mention_{chunk_id}_{entity_id}"
-            if edge_id not in store.edges:
-                store.upsert_edge(make_mentions_edge(edge_id, chunk_id, entity_id))
-
-        for rel in result.relations:
-            subj_id = normalizer.resolve_entity_id(rel.subject)
-            obj_id = normalizer.resolve_entity_id(rel.object)
-            if not subj_id or not obj_id:
-                continue
-            edge_id = f"rel_{subj_id}_{rel.predicate}_{obj_id}_{chunk_id}"
-            if edge_id not in store.edges:
-                store.upsert_edge(
-                    make_related_to_edge(
-                        edge_id,
-                        subj_id,
-                        obj_id,
-                        rel.predicate,
-                        rel.confidence,
-                        chunk_id,
-                    )
-                )
-
-    store.save()
-    stats = store.stats()
-    print(f"Graph built: {stats['nodes']} nodes, {stats['edges']} edges")
+    result = build_graph(args.env_file)
+    print(result)
     return 0
 
 
 def cmd_query(args: argparse.Namespace) -> int:
-    s = get_settings(Path(args.env_file) if args.env_file else None)
-
-    store = GraphStore(s.processed_dir)
-    if not store.nodes:
-        print("Graph is empty. Run 'build-graph' first.", file=sys.stderr)
-        return 1
-
-    # Retrieve context (uses FTS5 if index exists, falls back to keyword)
-    retrieval = retrieve_context(
-        store,
-        s.processed_dir,
-        args.question,
-        top_k_chunks=args.top_k,
-        graph_hops=args.hops,
-    )
-
-    if not retrieval["all_chunks"]:
-        print("No relevant chunks found.", file=sys.stderr)
-        return 1
-
-    # Prepare evidence
-    evidence = [(c.chunk_id, c.text) for c in retrieval["all_chunks"]]
-
-    # If no API key, show retrieval only
-    if not s.llm_api_key:
-        output = {
-            "question": args.question,
-            "answer": "[LLM API key not set - retrieval only]",
-            "citations": [],
-            "confidence": 0.0,
-            "retrieval": {
-                "keyword_chunks": len(retrieval["keyword_chunks"]),
-                "query_entities": [e.name for e in retrieval["query_entities"]],
-                "expanded_entity_count": retrieval["entity_count"],
-                "total_chunks_retrieved": len(retrieval["all_chunks"]),
-                "retrieved_chunks": [
-                    {
-                        "chunk_id": c.chunk_id,
-                        "doc_id": c.doc_id,
-                        "score": c.score,
-                        "preview": c.text[:200],
-                    }
-                    for c in retrieval["all_chunks"]
-                ],
-            },
-        }
+    try:
+        output = query(
+            question=args.question,
+            top_k=args.top_k,
+            hops=args.hops,
+            json_output=args.json,
+            env_file=args.env_file,
+        )
         if args.json:
             print(json.dumps(output, indent=2))
         else:
-            print(f"\nQuestion: {args.question}")
-            print(f"\nRetrieved {len(retrieval['all_chunks'])} chunks:")
-            for c in retrieval["all_chunks"]:
-                print(f"  [{c.chunk_id}] (score={c.score:.2f}) {c.text[:150]}...")
-            print(f"\nEntities found: {[e.name for e in retrieval['query_entities']]}")
+            print(f"\nQuestion: {output['question']}")
+            print(f"\nAnswer: {output['answer']}")
+            print(
+                f"\nCitations: {', '.join(output['citations']) if output['citations'] else 'none'}"
+            )
+            print(f"Confidence: {output['confidence']:.2f}")
+            print(f"\nRetrieval: {output['retrieval']}")
         return 0
+    except Exception as e:
+        print(f"Query failed: {e}", file=sys.stderr)
+        return 1
 
-    client = OpenAICompatibleClient(
-        base_url=s.llm_base_url,
-        api_key=s.llm_api_key,
-        model=s.llm_model,
-        timeout=s.request_timeout,
-        max_retries=s.max_retries,
-    )
 
-    # Generate answer
-    result: AnswerResult = generate_answer(client, args.question, evidence)
-
-    # Output
-    output = {
-        "question": args.question,
-        "answer": result.answer,
-        "citations": result.citations,
-        "confidence": result.confidence,
-        "retrieval": {
-            "keyword_chunks": len(retrieval["keyword_chunks"]),
-            "query_entities": [e.name for e in retrieval["query_entities"]],
-            "expanded_entity_count": retrieval["entity_count"],
-            "total_chunks_retrieved": len(retrieval["all_chunks"]),
-        },
-    }
-
-    if args.json:
-        print(json.dumps(output, indent=2))
-    else:
-        print(f"\nQuestion: {args.question}")
-        print(f"\nAnswer: {result.answer}")
-        print(
-            f"\nCitations: {', '.join(result.citations) if result.citations else 'none'}"
-        )
-        print(f"Confidence: {result.confidence:.2f}")
-        print(f"\nRetrieval: {output['retrieval']}")
-
+def cmd_build_fts(args: argparse.Namespace) -> int:
+    result = build_fts(args.env_file)
+    print(result)
     return 0
 
 
@@ -331,22 +177,8 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_build_fts(args: argparse.Namespace) -> int:
-    s = get_settings(Path(args.env_file) if args.env_file else None)
-
-    store = GraphStore(s.processed_dir)
-    if not store.nodes:
-        print("Graph is empty. Run 'build-graph' first.", file=sys.stderr)
-        return 1
-
-    print("Building FTS5 index...")
-    build_fts_index(store, s.processed_dir)
-    print("FTS5 index built successfully.")
-    return 0
-
-
 def cmd_eval(args: argparse.Namespace) -> int:
-    s = get_settings(Path(args.env_file) if args.env_file else None)
+    s = _get_settings(args.env_file)
 
     try:
         report = run_eval(
@@ -371,6 +203,213 @@ def cmd_eval(args: argparse.Namespace) -> int:
             f"Citation valid rate: {report['citation_valid_rate']:.2%} ({report['citations_valid_count']}/{report['total_questions']})"
         )
     return 0
+
+
+# --- FastAPI wrapper functions ---
+
+
+def ingest(env_file: str | None = None) -> str:
+    """Ingest documents from data/raw."""
+    s = _get_settings(env_file)
+    docs = load_documents(s.raw_dir)
+    if not docs:
+        return "No .md/.txt files found in data/raw"
+
+    all_records: list[ChunkRecord] = []
+    for doc in docs:
+        chunks = chunk_document(doc.doc_id, doc.text)
+        for c in chunks:
+            all_records.append(
+                ChunkRecord(
+                    chunk_id=c.chunk_id,
+                    doc_id=c.doc_id,
+                    path=str(doc.path.relative_to(s.raw_dir)),
+                    start=c.start,
+                    end=c.end,
+                    text_hash=hashlib.sha256(c.text.encode()).hexdigest(),
+                )
+            )
+
+    write_manifest(s.processed_dir, all_records)
+    return f"Ingested {len(docs)} docs -> {len(all_records)} chunks (manifest written)"
+
+
+def build_graph(env_file: str | None = None) -> str:
+    """Build knowledge graph with LLM extraction."""
+    s = _get_settings(env_file)
+
+    manifest = load_manifest(s.processed_dir)
+    if not manifest:
+        return "No manifest found. Run 'ingest' first."
+
+    store = GraphStore(s.processed_dir)
+
+    for chunk_id, rec in manifest.items():
+        if rec.doc_id not in store.nodes:
+            store.upsert_node(make_document_node(rec.doc_id, rec.path))
+        if chunk_id not in store.nodes:
+            chunk_text = _load_chunk_text(s, rec)
+            store.upsert_node(
+                make_chunk_node(chunk_id, rec.doc_id, chunk_text, rec.start, rec.end)
+            )
+        if f"edge_{rec.doc_id}_{chunk_id}" not in store.edges:
+            store.upsert_edge(
+                make_has_chunk_edge(
+                    f"edge_{rec.doc_id}_{chunk_id}", rec.doc_id, chunk_id
+                )
+            )
+
+    if not s.llm_api_key:
+        print(
+            "LLM API key not set (GRAPHRAG_LLM_API_KEY). Extraction skipped.",
+            file=sys.stderr,
+        )
+        print("Graph structure (documents/chunks) saved.")
+        store.save()
+        return "Graph structure (documents/chunks) saved."
+
+    client = OpenAICompatibleClient(
+        base_url=s.llm_base_url,
+        api_key=s.llm_api_key,
+        model=s.llm_model,
+        timeout=s.request_timeout,
+        max_retries=s.max_retries,
+    )
+
+    pipeline = ExtractionPipeline(client, max_retries=s.max_retries)
+    normalizer = EntityNormalizer(store)
+
+    for chunk_id, rec in manifest.items():
+        chunk_text = _load_chunk_text(s, rec)
+        try:
+            result = pipeline.extract(chunk_text)
+        except Exception as e:
+            print(f"Extraction failed for chunk {chunk_id}: {e}", file=sys.stderr)
+            continue
+
+        for ent in result.entities:
+            record = normalizer.normalize(ent.name, ent.entity_type, ent.canonical_name)
+            entity_id = record.entity_id
+
+            edge_id = f"mention_{chunk_id}_{entity_id}"
+            if edge_id not in store.edges:
+                store.upsert_edge(make_mentions_edge(edge_id, chunk_id, entity_id))
+
+        for rel in result.relations:
+            subj_id = normalizer.resolve_entity_id(rel.subject)
+            obj_id = normalizer.resolve_entity_id(rel.object)
+            if not subj_id or not obj_id:
+                continue
+            edge_id = f"rel_{subj_id}_{rel.predicate}_{obj_id}_{chunk_id}"
+            if edge_id not in store.edges:
+                store.upsert_edge(
+                    make_related_to_edge(
+                        edge_id,
+                        subj_id,
+                        obj_id,
+                        rel.predicate,
+                        rel.confidence,
+                        chunk_id,
+                    )
+                )
+
+    store.save()
+    stats = store.stats()
+    return f"Graph built: {stats['nodes']} nodes, {stats['edges']} edges"
+
+
+def build_fts(env_file: str | None = None) -> str:
+    """Build SQLite FTS5 index."""
+    s = _get_settings(env_file)
+
+    store = GraphStore(s.processed_dir)
+    if not store.nodes:
+        return "Graph is empty. Run 'build-graph' first."
+
+    print("Building FTS5 index...")
+    build_fts_index_fn(store, s.processed_dir)
+    return "FTS5 index built successfully."
+
+
+def query(
+    question: str,
+    top_k: int = 5,
+    hops: int = 2,
+    json_output: bool = False,
+    env_file: str | None = None,
+) -> dict[str, Any]:
+    """Query the graph and generate an answer."""
+    s = _get_settings(env_file)
+
+    store = GraphStore(s.processed_dir)
+    if not store.nodes:
+        raise RuntimeError("Graph is empty. Run 'build-graph' first.")
+
+    # Retrieve context
+    retrieval = retrieve_context(
+        store,
+        s.processed_dir,
+        question,
+        top_k_chunks=top_k,
+        graph_hops=hops,
+    )
+
+    if not retrieval["all_chunks"]:
+        raise RuntimeError("No relevant chunks found.")
+
+    # Prepare evidence
+    evidence = [(c.chunk_id, c.text) for c in retrieval["all_chunks"]]
+
+    # If no API key, return retrieval only
+    if not s.llm_api_key:
+        output = {
+            "question": question,
+            "answer": "[LLM API key not set - retrieval only]",
+            "citations": [],
+            "confidence": 0.0,
+            "retrieval": {
+                "keyword_chunks": len(retrieval["keyword_chunks"]),
+                "query_entities": [e.name for e in retrieval["query_entities"]],
+                "expanded_entity_count": retrieval["entity_count"],
+                "total_chunks_retrieved": len(retrieval["all_chunks"]),
+                "retrieved_chunks": [
+                    {
+                        "chunk_id": c.chunk_id,
+                        "doc_id": c.doc_id,
+                        "score": c.score,
+                        "preview": c.text[:200],
+                    }
+                    for c in retrieval["all_chunks"]
+                ],
+            },
+        }
+        return output
+
+    client = OpenAICompatibleClient(
+        base_url=s.llm_base_url,
+        api_key=s.llm_api_key,
+        model=s.llm_model,
+        timeout=s.request_timeout,
+        max_retries=s.max_retries,
+    )
+
+    # Generate answer
+    result: AnswerResult = generate_answer(client, question, evidence)
+
+    output = {
+        "question": question,
+        "answer": result.answer,
+        "citations": result.citations,
+        "confidence": result.confidence,
+        "retrieval": {
+            "keyword_chunks": len(retrieval["keyword_chunks"]),
+            "query_entities": [e.name for e in retrieval["query_entities"]],
+            "expanded_entity_count": retrieval["entity_count"],
+            "total_chunks_retrieved": len(retrieval["all_chunks"]),
+        },
+    }
+
+    return output
 
 
 def cmd_not_implemented(args: argparse.Namespace) -> int:
