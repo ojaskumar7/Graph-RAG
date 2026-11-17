@@ -27,3 +27,5 @@ data/hotpotqa_corpus/
 data/hotpotqa_golden.jsonl
 data_hotpot/
 eval_report.json
+
+eval_report_mock.json

@@ -101,25 +101,26 @@ Key components:
 # Extraction unit tests (10 tests: JSON repair, validation, retries)
 PYTHONPATH=src python3 tests/test_extract.py
 
-# Eval with mock LLM (validates retrieval + citation logic)
-PYTHONPATH=src python3 -m graphrag.cli eval --top-k 3 --mock-llm --full-pipeline
+# Eval unit tests (doc-ID matching, dedupe, extractive mock)
+PYTHONPATH=src python3 tests/test_eval.py
 
-# Expected: Hit rate 100%, Recall@k 100%, Citation valid 100%
+# Eval with mock LLM on a subset (validates retrieval + citation logic)
+PYTHONPATH=src python3 -m graphrag.cli eval --top-k 5 --mock-llm --full-pipeline --limit 5
+
+# Expected: Hit rate 100%, Recall@5 90%, Citation valid 100%
 ```
 
 ---
 
 ## 📊 Evaluation Results
 
-| Metric | Mock LLM | Real LLM (Groq qwen/qwen3.8-27b) |
-|--------|----------|----------------------------------|
-| **Hit Rate** | 100% (5/5) | 100% (5/5) |
-| **Avg Recall@k** | 100% | 100% |
-| **Citation Valid Rate** | 100% (5/5) | 100% (5/5) |
-| **Graph Nodes** | N/A | 18 (2 Doc + 3 Chunk + 13 Entity) |
-| **Graph Edges** | N/A | 38 (3 HAS_CHUNK + 17 MENTIONS + 18 RELATED_TO) |
+| Metric | HotpotQA (retrieval-only) | Mock LLM full pipeline (n=5) |
+|--------|---------------------------|------------------------------|
+| **Hit Rate@5** | 100% (20/20) | 100% (5/5) |
+| **Avg Recall@5** | 97.5% | 90.0% |
+| **Citation Valid Rate** | — | 100% (5/5) |
 
-> ⚠️ **Note**: Results are on a tiny corpus (2 docs, 3 chunks, 5 questions). This validates pipeline wiring, not retrieval quality at scale. See [Limitations](#limitations).
+> Evaluated on a **1,977-doc HotpotQA corpus** (2,142 chunks, structure-only graph — no LLM extraction), 20 multi-hop questions. Retrieval is FTS5 + vector only; the mock LLM is a deterministic extractive answerer, so citation metrics validate wiring rather than answer quality.
 
 ---
 
@@ -187,7 +188,7 @@ graphrag-lite/
 
 ## 🔮 Future Enhancements
 
-- [ ] Local embeddings (ONNX / fastembed) for semantic retrieval
+- [x] Local embeddings (ONNX / fastembed) for semantic retrieval
 - [ ] Community detection / graph summarization (MS GraphRAG style)
 - [ ] PDF/HTML ingestion via `pdfplumber` / `beautifulsoup4`
 - [ ] Larger HotpotQA / WikiText evaluation subsets
@@ -196,16 +197,16 @@ graphrag-lite/
 
 ## ⚠️ Limitations
 
-Current eval uses **2 documents, 3 chunks, 5 direct-fact questions**. This tests:
-- ✅ Pipeline wiring
-- ✅ Citation formatting
-- ✅ Mock LLM determinism
+Current eval uses a **1,977-document HotpotQA subset** (2,142 chunks, 20 multi-hop questions, structure-only graph). This tests:
+- ✅ Pipeline wiring at modest scale
+- ✅ Doc-level retrieval (hit@k / recall@k vs supporting docs)
+- ✅ Citation formatting + mock LLM determinism
 
 But does **NOT** test:
 - ❌ Retrieval at scale (100K+ chunks)
-- ❌ Multi-hop reasoning
-- ❌ Entity resolution / coreference
-- ❌ Semantic gaps (synonyms, paraphrases)
+- ❌ Answer quality with a real LLM (only extractive mock)
+- ❌ Entity resolution / coreference (extraction not run at this scale)
+- ❌ Graph-expanded multi-hop retrieval (no entities extracted yet)
 
 See [`docs/blog.md`](docs/blog.md) for detailed discussion.
 
