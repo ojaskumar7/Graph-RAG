@@ -1,58 +1,80 @@
 from pathlib import Path
 import tempfile
 
-from graphrag.eval import run_eval, GoldenQuestion
-from graphrag.config import Settings
+from graphrag.eval.metrics import (
+    MockLLMClient,
+    _doc_id_matches,
+    generate_answer_with_client,
+    load_golden_dataset,
+)
 
 
-def test_load_golden_dataset(tmp_path: Path) -> None:
-    eval_dir = tmp_path / "eval"
-    eval_dir.mkdir()
-    golden_file = eval_dir / "golden.jsonl"
-    golden_file.write_text(
-        '{"id": "q1", "question": "test?", "expected_answer": "ans", "supporting_facts": ["doc1"]}\n'
-    )
-
-    settings = Settings(
-        llm_base_url="https://api.openai.com/v1",
-        llm_api_key="",
-        llm_model="test",
-        data_dir=tmp_path,
-        request_timeout=60.0,
-        max_retries=2,
-    )
-    # Can't easily test run_eval without a graph store, but we can test load_golden_dataset
-    from graphrag.eval.metrics import load_golden_dataset
-
-    questions = load_golden_dataset(eval_dir)
-    assert len(questions) == 1
-    assert questions[0].id == "q1"
-    assert questions[0].supporting_facts == ["doc1"]
+def test_load_golden_dataset_dedupes_supporting_facts() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        eval_dir = Path(d)
+        golden_file = eval_dir / "golden.jsonl"
+        golden_file.write_text(
+            '{"id": "q1", "question": "test?", "expected_answer": "ans",'
+            ' "supporting_facts": ["doc1", "doc1", "doc2"]}\n'
+        )
+        questions = load_golden_dataset(eval_dir)
+        assert questions[0].supporting_facts == ["doc1", "doc2"]
 
 
-def test_mock_llm_client() -> None:
-    from graphrag.eval.metrics import MockLLMClient, generate_answer_with_client
+def test_doc_id_matches() -> None:
+    assert _doc_id_matches("doc_818633_txt", "doc_818633")
+    assert _doc_id_matches("doc_818633", "doc_818633")
+    assert not _doc_id_matches("doc_999999_txt", "doc_818633")
+    # Underscore sentinel prevents prefix collisions between doc IDs
+    assert not _doc_id_matches("doc_8186337_txt", "doc_818633")
 
-    client = MockLLMClient()
-    # Test it returns something
+
+def test_extractive_mock_answers_and_cites() -> None:
+    evidence = [
+        ("aaaa", "The Eiffel Tower was built by Gustave Eiffel's company."),
+        ("bbbb", "Unrelated text about dolphins."),
+    ]
     answer, citations, conf = generate_answer_with_client(
-        client,
-        "Who built the Eiffel Tower?",
-        [("eeb24a88f8ee5d4d", "Eiffel Tower built by Gustave Eiffel")],
+        MockLLMClient(), "Who built the Eiffel Tower?", evidence
     )
-    assert "Eiffel" in answer
-    assert "eeb24a88f8ee5d4d" in citations
+    assert citations == ["aaaa"]
+    assert "[aaaa]" in answer
     assert conf > 0.5
 
 
-def test_citation_validation() -> None:
-    from graphrag.eval.metrics import generate_answer_with_client, MockLLMClient
-
-    client = MockLLMClient()
-
-    # Answer with valid citation
+def test_extractive_mock_no_evidence() -> None:
     answer, citations, conf = generate_answer_with_client(
-        client, "test?", [("abc123", "text")]
+        MockLLMClient(), "Any question?", []
     )
-    # The mock returns a citation matching the first chunk
-    assert "eeb24a88f8ee5d4d" in citations or len(citations) >= 0
+    assert "Insufficient evidence" in answer
+    assert citations == []
+    assert conf == 0.1
+
+
+def test_extractive_mock_citations_always_valid() -> None:
+    evidence = [("chunk1", "Some sentence here."), ("chunk2", "Another sentence.")]
+    answer, citations, conf = generate_answer_with_client(
+        MockLLMClient(), "some sentence?", evidence
+    )
+    valid_ids = {cid for cid, _ in evidence}
+    assert all(c in valid_ids for c in citations)
+
+
+if __name__ == "__main__":
+    import sys
+
+    tests = [
+        test_load_golden_dataset_dedupes_supporting_facts,
+        test_doc_id_matches,
+        test_extractive_mock_answers_and_cites,
+        test_extractive_mock_no_evidence,
+        test_extractive_mock_citations_always_valid,
+    ]
+    for test in tests:
+        try:
+            test()
+            print(f"PASS: {test.__name__}")
+        except Exception as e:
+            print(f"FAIL: {test.__name__}: {e}")
+            sys.exit(1)
+    print("All tests passed!")

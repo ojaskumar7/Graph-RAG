@@ -194,6 +194,7 @@ def cmd_eval(args: argparse.Namespace) -> int:
             output_path=Path(args.output) if args.output else None,
             use_mock_llm=args.mock_llm,
             full_pipeline=args.full_pipeline,
+            limit=args.limit,
         )
     except RuntimeError as e:
         print(f"Eval failed: {e}", file=sys.stderr)
@@ -517,6 +518,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--full-pipeline",
         action="store_true",
         help="Run full pipeline with answer generation and citation validation",
+    )
+    eval_parser.add_argument(
+        "--limit", type=int, default=None, help="Only evaluate the first N questions"
     )
     eval_parser.set_defaults(func=cmd_eval)
 

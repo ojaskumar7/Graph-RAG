@@ -52,5 +52,5 @@ def get_settings(env_path: Path | None = None) -> Settings:
         # Ollama: base_url="http://localhost:11434/v1", model="llama3.1"
         data_dir=Path(os.environ.get("GRAPHRAG_DATA_DIR", "./data")),
         request_timeout=float(os.environ.get("GRAPHRAG_REQUEST_TIMEOUT", "60")),
-        max_retries=int(os.environ.get("GRAPHRAG_MAX_RETRIES", "2")),
+        max_retries=int(os.environ.get("GRAPHRAG_MAX_RETRIES", "5")),
     )

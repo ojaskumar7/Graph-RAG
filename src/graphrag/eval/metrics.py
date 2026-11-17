@@ -11,6 +11,30 @@ from graphrag.graph import GraphStore, NodeType
 from graphrag.retrieve import retrieve_context
 
 
+def _doc_id_matches(chunk_doc_id: str, fact: str) -> bool:
+    """Match a golden fact doc ID (e.g. 'doc_818633') against a chunk doc_id
+    (e.g. 'doc_818633_txt', produced by the loader's '.'->'_' rename)."""
+    if chunk_doc_id == fact:
+        return True
+    return chunk_doc_id.startswith(fact + "_")
+
+
+def _score_retrieval(
+    gq: GoldenQuestion, retrieved_chunks: list
+) -> tuple[bool, float]:
+    """Compute (hit_at_k, recall_at_k) for one golden question."""
+    hit = False
+    matched = 0
+    for fact in gq.supporting_facts:
+        for chunk in retrieved_chunks:
+            if _doc_id_matches(chunk.doc_id, fact):
+                hit = True
+                matched += 1
+                break
+    recall = matched / len(gq.supporting_facts) if gq.supporting_facts else 0.0
+    return hit, recall
+
+
 @dataclass(slots=True)
 class GoldenQuestion:
     id: str
@@ -30,6 +54,13 @@ def load_golden_dataset(eval_dir: Path) -> list[GoldenQuestion]:
             if not line:
                 continue
             data = json.loads(line)
+            # Handle both 'id' and 'question_id' field names
+            if "question_id" in data and "id" not in data:
+                data["id"] = data.pop("question_id")
+            # HotpotQA repeats fact doc IDs; dedupe for fair recall
+            data["supporting_facts"] = list(
+                dict.fromkeys(data.get("supporting_facts", []))
+            )
             questions.append(GoldenQuestion(**data))
     return questions
 
@@ -39,6 +70,7 @@ class EvalResult:
     question_id: str
     question: str
     retrieved_chunk_ids: list[str]
+    retrieved_doc_ids: list[str]
     expected_supporting_facts: list[str]
     hit_at_k: bool
     recall_at_k: float
@@ -47,77 +79,51 @@ class EvalResult:
     confidence: float
 
 
-class MockLLMClient:
-    """Mock LLM client for testing without API key."""
+_STOPWORDS = {
+    "the", "a", "an", "of", "in", "on", "at", "to", "was", "were", "is",
+    "are", "and", "or", "what", "who", "which", "did", "do", "does", "by",
+    "for", "with", "same", "their", "his", "her", "its", "that", "this",
+}
 
-    def chat(self, messages: list[dict[str, str]], *, temperature: float = 0.0) -> str:
-        # Extract question and evidence from last message
-        content = messages[-1]["content"]
-        # Simple heuristic answer based on evidence
-        if "Eiffel Tower" in content and "built" in content:
-            return "The Eiffel Tower was built by Gustave Eiffel's company [eeb24a88f8ee5d4d]."
-        if "Eiffel Tower" in content and "located" in content:
-            return "The Eiffel Tower is located in Paris, France [eeb24a88f8ee5d4d]."
-        if "Statue of Liberty" in content and "designed" in content:
-            return "The Statue of Liberty was designed by Frédéric Auguste Bartholdi [dd72ce7db6bd2c56]."
-        if "Statue of Liberty" in content and "metal framework" in content:
-            return "The metal framework was built by Gustave Eiffel [dd72ce7db6bd2c56]."
-        if "World's Fair" in content and "centerpiece" in content:
-            return "The Eiffel Tower was the centerpiece of the 1889 World's Fair [232d11df9ce35863]."
-        return "Insufficient evidence to answer."
+
+class MockLLMClient:
+    """Deterministic extractive mock. generate_answer_with_client handles it
+    specially — no HTTP client, no hardcoded corpus knowledge."""
+
+
+def _extractive_answer(
+    question: str, evidence_chunks: list[tuple[str, str]]
+) -> tuple[str, list[str], float]:
+    """Pick the evidence chunk with the highest question-token overlap and
+    answer with its first sentence, citing that chunk."""
+    if not evidence_chunks:
+        return "Insufficient evidence to answer.", [], 0.1
+
+    q_tokens = set(re.findall(r"\w+", question.lower())) - _STOPWORDS
+    best_id, best_text, best_score = evidence_chunks[0][0], evidence_chunks[0][1], -1.0
+    for cid, text in evidence_chunks:
+        t_tokens = set(re.findall(r"\w+", text.lower()))
+        score = len(q_tokens & t_tokens) / max(len(q_tokens), 1)
+        if score > best_score:
+            best_id, best_text, best_score = cid, text, score
+
+    sentences = re.split(r"(?<=[.!?])\s+", best_text.strip())
+    sentence = (sentences[0] if sentences else best_text)[:300]
+    return f"{sentence} [{best_id}]", [best_id], 0.8
 
 
 def generate_answer_with_client(
     client, question: str, evidence_chunks: list[tuple[str, str]]
 ) -> tuple[str, list[str], float]:
-    """Generate answer and extract citations."""
-    from graphrag.generate import generate_answer, AnswerResult
-
-    # We need to call the actual generate_answer but with our client
-    # Let's use a simplified version here
+    """Generate answer and extract citations. Mock clients are answered
+    extractively; real clients go through graphrag.generate."""
     if isinstance(client, MockLLMClient):
-        # Format evidence like generate_answer does
-        evidence_parts = []
-        for chunk_id, text in evidence_chunks:
-            evidence_parts.append(f"[Chunk {chunk_id}]\n{text}")
-        evidence_str = "\n\n---\n\n".join(evidence_parts)
+        return _extractive_answer(question, evidence_chunks)
 
-        # Simple prompt format
-        prompt = f"""You are a helpful assistant that answers questions using ONLY the provided evidence.
+    from graphrag.generate import AnswerResult, generate_answer
 
-Evidence chunks (each has an ID):
-{evidence_str}
-
-Question: {question}
-
-Instructions:
-- Answer ONLY using the evidence above
-- Cite evidence by chunk ID in square brackets, e.g., [abc123]
-- If evidence is insufficient, say "Insufficient evidence to answer."
-- Be concise and direct
-
-Answer:"""
-
-        messages = [{"role": "user", "content": prompt}]
-        response = client.chat(messages, temperature=0.0)
-
-        # Extract citations
-        citations = list(set(re.findall(r"\[([a-f0-9]{16})\]", response)))
-        chunk_citations = list(set(re.findall(r"\[Chunk ([a-f0-9]{16})\]", response)))
-        all_citations = list(set(citations + chunk_citations))
-
-        # Validate citations against evidence
-        evidence_ids = {cid for cid, _ in evidence_chunks}
-        valid_citations = [c for c in all_citations if c in evidence_ids]
-
-        has_insufficient = "insufficient evidence" in response.lower()
-        confidence = 0.1 if has_insufficient else (0.8 if valid_citations else 0.4)
-
-        return response.strip(), valid_citations, confidence
-    else:
-        # Use real LLM via graphrag.generate
-        result: AnswerResult = generate_answer(client, question, evidence_chunks)
-        return result.answer, result.citations, result.confidence
+    result: AnswerResult = generate_answer(client, question, evidence_chunks)
+    return result.answer, result.citations, result.confidence
 
 
 def evaluate_retrieval(
@@ -134,23 +140,16 @@ def evaluate_retrieval(
         )
         retrieved_chunks = retrieval["all_chunks"]
         retrieved_chunk_ids = [c.chunk_id for c in retrieved_chunks]
+        retrieved_doc_ids = sorted({c.doc_id for c in retrieved_chunks})
 
-        hit = False
-        matched = 0
-        for fact in gq.supporting_facts:
-            for chunk in retrieved_chunks:
-                if chunk.doc_id == fact or fact in chunk.chunk_id:
-                    hit = True
-                    matched += 1
-                    break
-
-        recall = matched / len(gq.supporting_facts) if gq.supporting_facts else 0.0
+        hit, recall = _score_retrieval(gq, retrieved_chunks)
 
         results.append(
             EvalResult(
                 question_id=gq.id,
                 question=gq.question,
                 retrieved_chunk_ids=retrieved_chunk_ids,
+                retrieved_doc_ids=retrieved_doc_ids,
                 expected_supporting_facts=gq.supporting_facts,
                 hit_at_k=hit,
                 recall_at_k=recall,
@@ -200,17 +199,10 @@ def evaluate_full_pipeline(
         )
         retrieved_chunks = retrieval["all_chunks"]
         retrieved_chunk_ids = [c.chunk_id for c in retrieved_chunks]
+        retrieved_doc_ids = sorted({c.doc_id for c in retrieved_chunks})
 
         # Check retrieval hit
-        hit = False
-        matched = 0
-        for fact in gq.supporting_facts:
-            for chunk in retrieved_chunks:
-                if chunk.doc_id == fact or fact in chunk.chunk_id:
-                    hit = True
-                    matched += 1
-                    break
-        recall = matched / len(gq.supporting_facts) if gq.supporting_facts else 0.0
+        hit, recall = _score_retrieval(gq, retrieved_chunks)
 
         # Generate answer with citations
         evidence = [(c.chunk_id, c.text) for c in retrieved_chunks]
@@ -229,6 +221,7 @@ def evaluate_full_pipeline(
                 question_id=gq.id,
                 question=gq.question,
                 retrieved_chunk_ids=retrieved_chunk_ids,
+                retrieved_doc_ids=retrieved_doc_ids,
                 expected_supporting_facts=gq.supporting_facts,
                 hit_at_k=hit,
                 recall_at_k=recall,
@@ -247,12 +240,15 @@ def run_eval(
     output_path: Optional[Path] = None,
     use_mock_llm: bool = False,
     full_pipeline: bool = False,
+    limit: Optional[int] = None,
 ) -> dict:
     golden = load_golden_dataset(settings.eval_dir)
     if not golden:
         raise RuntimeError(
             f"No golden questions found in {settings.eval_dir}/golden.jsonl"
         )
+    if limit:
+        golden = golden[:limit]
 
     if full_pipeline:
         results = evaluate_full_pipeline(settings, golden, top_k, hops, use_mock_llm)

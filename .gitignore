@@ -22,3 +22,8 @@ data/hotpotqa/
 .vscode/
 .idea/
 .venv/
+data/raw_full/
+data/hotpotqa_corpus/
+data/hotpotqa_golden.jsonl
+data_hotpot/
+eval_report.json

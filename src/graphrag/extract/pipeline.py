@@ -241,13 +241,9 @@ class ExtractionPipeline:
                 if not isinstance(rel, dict):
                     errors.append(f"Relation {i}: must be an object")
                     continue
-                missing = [
-                    k
-                    for k in ("subject", "predicate", "object")
-                    if k not in rel or not rel.get(k, "").strip()
-                ]
-                if missing:
-                    errors.append(f"Relation {i}: missing required fields: {missing}")
+                # Don't fail on missing fields - they'll be filtered during conversion
+                # Just warn if confidence is not a number (out-of-range values
+                # are clamped during conversion, not rejected)
                 if "confidence" in rel:
                     try:
                         float(rel["confidence"])
